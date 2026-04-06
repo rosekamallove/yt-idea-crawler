@@ -4,6 +4,7 @@ import { poll as pollReddit } from "./reddit.js";
 import { poll as pollGitHub } from "./github-trending.js";
 import { poll as pollGoogleNews } from "./google-news.js";
 import { poll as pollTwitter } from "./twitter.js";
+import { poll as pollBluesky } from "./bluesky.js";
 import { poll as pollProductHunt } from "./product-hunt.js";
 import { poll as pollYouTube } from "./youtube.js";
 
@@ -18,6 +19,7 @@ const ALL_SOURCES: SourceModule[] = [
   { name: "github", poll: pollGitHub },
   { name: "google-news", poll: pollGoogleNews },
   { name: "twitter", poll: pollTwitter },
+  { name: "twitter", poll: pollBluesky }, // Bluesky grouped as social signals
   { name: "product-hunt", poll: pollProductHunt },
   { name: "youtube", poll: pollYouTube },
 ];
