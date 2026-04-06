@@ -1,0 +1,22 @@
+{
+  "name": "yt-idea-crawler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx --env-file=.env scripts/run.ts",
+    "dev": "tsx --env-file=.env scripts/run.ts --dry-run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@notionhq/client": "^2.3.0",
+    "cheerio": "^1.0.0",
+    "resend": "^4.5.1",
+    "rss-parser": "^3.13.0",
+    "tsx": "^4.19.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.3"
+  }
+}
