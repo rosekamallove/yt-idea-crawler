@@ -3,6 +3,8 @@ import { dedup } from "../src/dedup/dedup.js";
 import { loadRecentTopics, saveTopics } from "../src/dedup/history.js";
 import { analyze } from "../src/analysis/analyze.js";
 import { scoreAndRank } from "../src/analysis/scoring.js";
+import { pushToNotion } from "../src/delivery/notion.js";
+import { sendDigest } from "../src/delivery/email.js";
 import type { SourceType, VideoBrief } from "../src/types.js";
 
 function parseArgs() {
@@ -157,10 +159,33 @@ async function main() {
     printBrief(briefs[i], i + 1);
   }
 
-  // 7. Save topics to history
+  // 7. Deliver to Notion
+  let notionCreated = 0;
+  if (!flags.noNotion) {
+    try {
+      notionCreated = await pushToNotion(briefs);
+    } catch (err) {
+      console.error(`[Notion] Failed:`, err);
+    }
+  } else {
+    console.log("[Notion] Skipped (--no-notion)\n");
+  }
+
+  // 8. Send email digest
+  if (!flags.noEmail) {
+    try {
+      await sendDigest(briefs);
+    } catch (err) {
+      console.error(`[Email] Failed:`, err);
+    }
+  } else {
+    console.log("[Email] Skipped (--no-email)\n");
+  }
+
+  // 9. Save topics to history
   await saveTopics(briefs);
 
-  // 8. Summary
+  // 10. Summary
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   const bySource = new Map<string, number>();
   for (const s of signals) {
@@ -177,6 +202,8 @@ async function main() {
     `  Sources: ${[...bySource.entries()].map(([k, v]) => `${k}=${v}`).join(", ")}`
   );
   console.log(`  Briefs: ${briefs.length} video ideas generated`);
+  console.log(`  Notion: ${notionCreated} pages created`);
+  console.log(`  Email: ${flags.noEmail ? "skipped" : "sent"}`);
   console.log(`  Top idea: "${briefs[0]?.topic}" (${briefs[0]?.scores.composite}/10)`);
   console.log(`  Time: ${elapsed}s`);
   console.log("=".repeat(60));

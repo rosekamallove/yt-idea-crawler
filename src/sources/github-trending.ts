@@ -46,7 +46,8 @@ async function searchRepos(query: string): Promise<GitHubRepo[]> {
     "User-Agent": "yt-idea-crawler/0.1",
   };
 
-  if (config.githubToken) {
+  // Only add auth if it's a real token, not a placeholder
+  if (config.githubToken && !config.githubToken.startsWith("ghp_...")) {
     headers["Authorization"] = `Bearer ${config.githubToken}`;
   }
 

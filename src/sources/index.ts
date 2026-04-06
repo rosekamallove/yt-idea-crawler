@@ -3,6 +3,9 @@ import { poll as pollHN } from "./hackernews.js";
 import { poll as pollReddit } from "./reddit.js";
 import { poll as pollGitHub } from "./github-trending.js";
 import { poll as pollGoogleNews } from "./google-news.js";
+import { poll as pollTwitter } from "./twitter.js";
+import { poll as pollProductHunt } from "./product-hunt.js";
+import { poll as pollYouTube } from "./youtube.js";
 
 interface SourceModule {
   name: SourceType;
@@ -14,6 +17,9 @@ const ALL_SOURCES: SourceModule[] = [
   { name: "reddit", poll: pollReddit },
   { name: "github", poll: pollGitHub },
   { name: "google-news", poll: pollGoogleNews },
+  { name: "twitter", poll: pollTwitter },
+  { name: "product-hunt", poll: pollProductHunt },
+  { name: "youtube", poll: pollYouTube },
 ];
 
 export async function pollAll(
