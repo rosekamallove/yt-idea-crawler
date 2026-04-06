@@ -48,177 +48,236 @@ yt-idea-crawler/
 
 ---
 
-## Implementation Steps
+## Phased Implementation
 
-### Step 1: Project scaffolding
-- Init with `package.json`, `tsconfig.json` (ES2022, ESNext, bundler resolution, strict)
-- Dependencies: `tsx`, `@anthropic-ai/sdk`, `@notionhq/client`, `resend`, `rss-parser`, `cheerio`
-- Create `.env.example`, `.gitignore`, `data/` directory
-- Define core types in `src/types.ts`
+### Phase 1: Foundation — Scaffold + First Source + Console Output
+> Goal: Run `npx tsx scripts/run.ts` and see real signals printed to console.
 
-### Step 2: Source modules (one at a time, priority order)
+**1.1 Project scaffolding**
+- `package.json` with deps: `tsx`, `@anthropic-ai/sdk`, `rss-parser`, `cheerio`
+- `tsconfig.json` (ES2022, ESNext, bundler resolution, strict)
+- `.env.example`, `.gitignore`, `data/` directory
+- Core types in `src/types.ts` — `RawSignal` interface
+- Config in `src/config.ts` — env vars, AI keyword list
 
-Each source exports: `async function poll(): Promise<RawSignal[]>`
+**1.2 Hacker News source** (`src/sources/hackernews.ts`)
+- Public API, no auth — fastest to get working
+- Poll `/topstories`, `/newstories`, `/showstories`
+- Fetch top 100 items, filter by AI/coding keywords
+- Return `RawSignal[]`
 
-**2a. Hacker News** — Easiest, no auth
-- Public API: `https://hacker-news.firebaseio.com/v0/`
-- Poll `/topstories`, `/newstories`, `/showstories` (Show HN = high buildability signal)
-- Fetch top 100 items, filter by AI/coding/vibe-coding keywords
-- Extract: title, url, score, comment count, age
+**1.3 Minimal pipeline** (`scripts/run.ts`)
+- Poll HN → print signals to console with counts
+- CLI flag: `--sources=hn`
 
-**2b. Reddit** — No auth needed for JSON API
-- Subreddits: `r/LocalLLaMA`, `r/ClaudeAI`, `r/ChatGPT`, `r/MachineLearning`, `r/artificial`, `r/ollama`, `r/singularity`, `r/cursor`, `r/vibecoding`
-- Fetch `/hot.json` and `/new.json` per subreddit
+**Milestone:** `npx tsx scripts/run.ts` prints 20-50 filtered HN signals.
+
+---
+
+### Phase 2: More Sources — Reddit, GitHub, Google News
+> Goal: 4 sources running in parallel, dedup working.
+
+**2.1 Reddit source** (`src/sources/reddit.ts`)
+- JSON API (no auth), 9 subreddits, `/hot.json` + `/new.json`
 - Filter: score > 20 (hot), > 5 (new)
-- Set descriptive `User-Agent` header (Reddit requires this)
 
-**2c. GitHub Trending**
-- Use search API: repos created in last 7 days, sorted by stars, filtered by AI/dev-tools topics
-- Auth: `GITHUB_TOKEN` for higher rate limits (5000 req/hr)
-- Also scrape `github.com/trending` page with cheerio as a backup
+**2.2 GitHub Trending** (`src/sources/github-trending.ts`)
+- Search API: repos created in last 7 days, sorted by stars
+- Filter by AI/dev-tools topics in description
+- Auth: `GITHUB_TOKEN` for rate limits
 
-**2d. Google News RSS**
+**2.3 Google News RSS** (`src/sources/google-news.ts`)
 - Multiple query feeds via `rss-parser`:
-  - "AI coding tool launch", "vibe coding", "Claude Code", "Cursor AI", "LLM open source", "AI agent framework", "AI developer tools"
-- Same resilient polling pattern as swf-pipeline
+  - "AI coding tool launch", "vibe coding", "Claude Code", "Cursor AI", "LLM open source", "AI agent framework"
 
-**2e. Twitter/X** (Nitter RSS)
-- Curated list of ~30 accounts: AI builders, tool creators, indie hackers
-- Poll Nitter RSS feeds (multiple instance fallback)
-- This source is inherently fragile — design for graceful degradation
+**2.4 Source barrel** (`src/sources/index.ts`)
+- `pollAll()` — runs all sources with `Promise.allSettled`, merges results
+- Logs per-source counts and failures
 
-**2f. Product Hunt** (optional, lower priority)
-- GraphQL API, filter by "Developer Tools" + "AI" categories
+**2.5 Basic dedup** (`src/dedup/dedup.ts`)
+- URL dedup: SHA-256 of normalized URL
+- Semantic fingerprint: lowercase title → strip stop words → sort → hash
+- Persist seen URLs to `data/seen-urls.json`
 
-**2g. YouTube Competitor Channels** (optional, lower priority)
-- YT Data API v3, monitor ~20 channels for recent uploads
-- Purpose: know what's already being covered
+**2.6 Update pipeline**
+- Poll all 4 sources in parallel → dedup → print summary
+- CLI flags: `--sources=hn,reddit,github,news`
 
-### Step 3: Deduplication
-- **URL dedup**: SHA-256 of normalized URL, persisted in `data/seen-urls.json`
-- **Semantic fingerprint**: lowercase title → strip stop words → sort → hash
-- **Run-to-run**: persist recent idea titles in `data/history.json`, include in LLM prompt to avoid regenerating same topics
+**Milestone:** `npx tsx scripts/run.ts` prints 50-150 deduplicated signals from 4 sources.
 
-### Step 4: LLM Analysis Pipeline
-- Use `@anthropic-ai/sdk` with Claude (on-brand for the channel)
-- Batch all deduplicated signals into one Claude call (~50-100 signals, well within context)
-- System prompt encodes channel thesis AND the video creation methodology (Topic → Angle → Hook, Triple C)
-- Claude clusters related signals, generates a **full video brief** per cluster
-- Use tool_use / structured output to guarantee schema conformance
+---
 
-**VideoBrief output schema:**
+### Phase 3: Brain — Claude Analysis + Scoring
+> Goal: Raw signals go in, scored VideoBriefs come out.
+
+**3.1 Types** — add `VideoBrief` to `src/types.ts`
 ```typescript
 {
   // === TOPIC ===
-  topic: string                // The core subject (e.g., "Claude Code source leak")
-  whyNow: string               // Why this is timely — what just happened?
+  topic: string                // Core subject (e.g., "Claude Code source leak")
+  whyNow: string               // Why this is timely
   sources: {                   // Multiple references per idea
     url: string
     title: string
-    source: 'hackernews' | 'reddit' | 'github' | 'google-news' | 'twitter' | 'product-hunt' | 'youtube'
-    snippet: string            // Key quote or takeaway from this source
+    source: string
+    snippet: string            // Key quote or takeaway
   }[]
 
   // === ANGLES (2-3 per topic) ===
   angles: {
-    angle: string              // The specific spin (e.g., "What can you actually build with it?")
+    angle: string              // The specific spin
     title: string              // Video title for this angle
-    hook: string               // The curiosity hook — opens a loop, sparks "need to watch"
-    thumbnailConcept: string   // Visual concept (90% psychology): what's the ONE image that makes people lean in?
-    intros: {                  // 2-3 intro options with different payoffs to test
-      intro: string            // First 2-3 sentences of the video
-      payoff: string           // What the viewer secretly hopes to walk away with
+    hook: string               // Curiosity hook — opens a loop
+    thumbnailConcept: string   // Visual concept (90% psychology)
+    intros: {                  // 2-3 intro options to test
+      intro: string            // First 2-3 sentences
+      payoff: string           // What viewer hopes to walk away with
     }[]
     buildProject: string       // Concrete thing to build on camera
     format: 'tutorial' | 'deep-dive' | 'speed-build' | 'comparison' | 'reaction'
-    estimatedBuildTime: string // "30 min", "2 hours"
+    estimatedBuildTime: string
   }[]
 
   // === SCORING ===
   scores: {
-    buildability: number       // 1-10: Can you build something real on camera?
-    timeliness: number         // 1-10: Is this trending RIGHT NOW?
-    virality: number           // 1-10: Will this get clicks?
-    composite: number          // Weighted: 0.50 * build + 0.30 * time + 0.20 * viral
+    buildability: number       // 1-10
+    timeliness: number         // 1-10
+    virality: number           // 1-10
+    composite: number          // 0.50*build + 0.30*time + 0.20*viral
   }
-
-  tags: string[]               // e.g., ["claude", "agents", "open-source", "vibe-coding"]
+  tags: string[]
 }
 ```
 
-### Step 5: Scoring
-```
-composite = (buildability * 0.50) + (timeliness * 0.30) + (virality * 0.20)
-```
+**3.2 System prompt** (`src/analysis/prompts.ts`)
+- Encodes channel thesis: "Less talking about AI, more building with it"
+- Encodes video methodology: Topic → Angle → Hook
+- Instructs: cluster related signals, generate VideoBrief per cluster
+- Instructs: every angle MUST have a concrete build project
+- Instructs: intros should pitch different payoffs to test before filming
+- Instructs: thumbnail concepts are psychological, not decorative
 
-- **Buildability (1-10)**: LLM-assessed base + heuristic boosts (+2 if GitHub repo, +1 if mentions API/SDK/open-source, -2 if pure opinion/news)
-- **Timeliness (1-10)**: Age factor (< 6h = 10, < 24h = 8, < 48h = 6, < 7d = 3) + multi-source bonus (+2 if 3+ sources)
-- **Virality (1-10)**: LLM-assessed + boosts for big-name brands, controversy, high engagement-to-age ratio
+**3.3 Claude analysis** (`src/analysis/analyze.ts`)
+- `@anthropic-ai/sdk` with tool_use for structured output
+- Batch all signals into one call (50-100 signals ≈ 10K tokens)
+- Returns `VideoBrief[]`
 
-### Step 6: Notion Delivery
-- User creates a Notion database with properties:
-  - **Topic** (title) — the core subject
-  - **Status** (select) — New Ideas / Researching / Scripting / Filming / Published
-  - **Composite Score** (number) — 0-10
-  - **Buildability** / **Timeliness** / **Virality** (number) — 0-10 each
-  - **Why Now** (rich_text) — timeliness context
-  - **Tags** (multi_select)
-  - **Surfaced At** (date)
-- Each Notion page body contains the **full video brief**:
-  - Sources section with all reference links + snippets
-  - Each angle as a toggle block containing: title, hook, thumbnail concept, intro options, build project
-  - This makes the Notion page a self-contained brief Rose can work from directly
-- Agent creates pages with Status = "New Ideas"
-- Before creating, check for existing pages with similar topics to avoid duplicates
+**3.4 Scoring heuristics** (`src/analysis/scoring.ts`)
+- Buildability: LLM base + boosts (+2 GitHub repo, +1 API/SDK mention, -2 pure opinion)
+- Timeliness: age factor + multi-source bonus (+2 if 3+ sources mention it)
+- Virality: LLM base + boosts (big brand, controversy, high engagement/age ratio)
+- Composite: `0.50 * buildability + 0.30 * timeliness + 0.20 * virality`
 
-### Step 7: Email Digest
-- Resend SDK (same as swf-pipeline)
-- Subject: `"Idea Crawler: {count} new ideas — {date}"`
-- Top 3 ideas expanded, rest as compact list
-- Link to Notion board in footer
+**3.5 Run-to-run dedup**
+- Persist generated topic titles to `data/history.json`
+- Include recent history in prompt so Claude avoids regenerating same topics
 
-### Step 8: Pipeline Orchestration (`scripts/run.ts`)
-```
-1. Poll all sources in parallel (Promise.allSettled)
-2. Merge into single RawSignal[]
-3. Dedup (URL + fingerprint + history)
-4. Send to Claude for analysis
-5. Score and rank VideoIdea[]
-6. Push to Notion
-7. Send email digest
-8. Persist run state
-9. Print summary
-```
+**3.6 Update pipeline**
+- Poll → dedup → analyze → score → print ranked VideoBriefs to console
+- `--dry-run` flag skips analysis (just shows raw signals)
 
-CLI flags: `--dry-run`, `--no-email`, `--no-notion`, `--sources=hn,reddit`
-
-### Step 9: Scheduling
-- Start with local cron: `0 8 * * *` (daily 8 AM) + `0 16 * * *` (4 PM)
-- Graduate to GitHub Actions when stable
+**Milestone:** `npx tsx scripts/run.ts` prints 5-15 scored VideoBriefs with angles, hooks, and build projects.
 
 ---
 
-## Key Files to Reference
+### Phase 4: Delivery — Notion Board + Email Digest
+> Goal: Ideas land in Notion and your inbox automatically.
+
+**4.1 Notion integration** (`src/delivery/notion.ts`)
+- Install `@notionhq/client`
+- Database properties: Topic (title), Status (select), Composite Score, Buildability, Timeliness, Virality, Why Now, Tags, Surfaced At
+- Page body = full video brief:
+  - **Sources** section with reference links + snippets
+  - **Angle** toggle blocks, each containing: title, hook, thumbnail concept, intro options, build project
+- Duplicate check: query existing pages, skip if similar topic exists
+- Env: `NOTION_API_KEY`, `NOTION_DATABASE_ID`
+
+**4.2 Email digest** (`src/delivery/email.ts`)
+- Install `resend`
+- Subject: `"Idea Crawler: {count} new ideas — {date}"`
+- HTML body: top 3 briefs expanded (topic, best angle, score), rest as compact list
+- Footer: link to Notion board
+- Env: `RESEND_API_KEY`, `DIGEST_EMAIL`
+
+**4.3 Update pipeline**
+- Poll → dedup → analyze → score → push to Notion → send email → persist state
+- CLI flags: `--no-email`, `--no-notion`
+
+**Milestone:** Run the crawler, open Notion — see video briefs as pages with toggle blocks. Check email — see a digest.
+
+---
+
+### Phase 5: More Sources — Twitter, Product Hunt, YouTube Competitors
+> Goal: Expand signal coverage with fragile/optional sources.
+
+**5.1 Twitter/X** (`src/sources/twitter.ts`)
+- Nitter RSS for ~30 curated accounts (AI builders, tool creators, indie hackers)
+- Multiple Nitter instance fallback
+- Graceful degradation — if all instances fail, skip silently
+
+**5.2 Product Hunt** (`src/sources/product-hunt.ts`)
+- GraphQL API, filter by "Developer Tools" + "AI" categories
+- Env: `PRODUCTHUNT_TOKEN` (free)
+
+**5.3 YouTube Competitor Channels** (`src/sources/youtube.ts`)
+- YT Data API v3, monitor ~20 channel IDs for recent uploads
+- Purpose: know what's already covered, find differentiated angles
+- Env: `YOUTUBE_API_KEY`
+
+**Milestone:** 7 sources running. Raw signal count doubles.
+
+---
+
+### Phase 6: Automation — Scheduling + Resilience
+> Goal: Runs itself daily without you thinking about it.
+
+**6.1 Error handling hardening**
+- Per-source timeouts (30s default)
+- Graceful failure: if a source dies, others continue
+- If Claude API fails, save raw signals to `data/fallback-{date}.json` for manual review
+
+**6.2 Local cron**
+- `0 8 * * *` (8 AM daily) + `0 16 * * *` (4 PM)
+- Log output to `logs/`
+
+**6.3 GitHub Actions (graduation)**
+- `.github/workflows/crawl.yml` with `schedule: cron`
+- Secrets in repo settings
+- Runs even when laptop is off
+
+**Milestone:** Wake up to a Notion board with fresh video briefs + email in your inbox. Zero manual effort.
+
+---
+
+## Reference Files
 - `startupswithfunding/swf-pipeline/scripts/run.ts` — pipeline orchestration pattern
 - `startupswithfunding/swf-pipeline/src/sources/rss.ts` — resilient RSS polling
 - `startupswithfunding/swf-pipeline/src/extraction/llmExtract.ts` — structured LLM extraction
 - `startupswithfunding/swf-pipeline/tsconfig.json` — TypeScript config to replicate
 
-## Environment Variables Needed
+## Environment Variables
 ```
+# Required (Phase 3+)
 ANTHROPIC_API_KEY=sk-ant-...
+
+# Required (Phase 4)
 NOTION_API_KEY=ntn_...
 NOTION_DATABASE_ID=...
 RESEND_API_KEY=re_...
 DIGEST_EMAIL=...
-GITHUB_TOKEN=ghp_...        # optional
-PRODUCTHUNT_TOKEN=...        # optional
-YOUTUBE_API_KEY=...          # optional
+
+# Optional (Phase 2+)
+GITHUB_TOKEN=ghp_...
+
+# Optional (Phase 5)
+PRODUCTHUNT_TOKEN=...
+YOUTUBE_API_KEY=...
 ```
 
-## Verification
-1. Run `npx tsx scripts/run.ts --dry-run` — should poll sources, print signals, show scored ideas, but skip Notion/email
-2. Run with `--no-email` to test Notion delivery in isolation
-3. Full run: verify Notion board gets populated and email arrives
-4. Check `data/history.json` to confirm dedup state persists
-5. Run again immediately — should produce zero new ideas (dedup working)
+## Verification (per phase)
+1. **Phase 1:** `npx tsx scripts/run.ts` → 20-50 HN signals in console
+2. **Phase 2:** Same command → 50-150 deduplicated signals from 4 sources
+3. **Phase 3:** Same command → 5-15 ranked VideoBriefs with angles, hooks, builds
+4. **Phase 4:** Notion board populated + email received
+5. **Phase 5:** Signal count doubles, new source types visible
+6. **Phase 6:** Runs unattended daily, failures logged not crashed
