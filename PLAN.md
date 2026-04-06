@@ -102,22 +102,47 @@ Each source exports: `async function poll(): Promise<RawSignal[]>`
 ### Step 4: LLM Analysis Pipeline
 - Use `@anthropic-ai/sdk` with Claude (on-brand for the channel)
 - Batch all deduplicated signals into one Claude call (~50-100 signals, well within context)
-- System prompt encodes channel thesis: *"Less talking about AI, more building with it. The channel focuses on vibe coding — using AI to ship real software. Every idea MUST have a concrete build project."*
-- Claude clusters related signals, generates `VideoIdea` per cluster
+- System prompt encodes channel thesis AND the video creation methodology (Topic → Angle → Hook, Triple C)
+- Claude clusters related signals, generates a **full video brief** per cluster
 - Use tool_use / structured output to guarantee schema conformance
 
-**VideoIdea output schema:**
+**VideoBrief output schema:**
 ```typescript
 {
-  title: string              // Suggested video title
-  hook: string               // Opening angle (1-2 sentences)
-  whyNow: string             // Why this is timely
-  buildProject: string       // What to build on camera
-  format: 'tutorial' | 'deep-dive' | 'speed-build' | 'comparison' | 'reaction'
-  estimatedBuildTime: string // "30 min", "2 hours"
-  scores: { buildability: number, timeliness: number, virality: number, composite: number }
-  sourceUrls: string[]
-  tags: string[]
+  // === TOPIC ===
+  topic: string                // The core subject (e.g., "Claude Code source leak")
+  whyNow: string               // Why this is timely — what just happened?
+  sources: {                   // Multiple references per idea
+    url: string
+    title: string
+    source: 'hackernews' | 'reddit' | 'github' | 'google-news' | 'twitter' | 'product-hunt' | 'youtube'
+    snippet: string            // Key quote or takeaway from this source
+  }[]
+
+  // === ANGLES (2-3 per topic) ===
+  angles: {
+    angle: string              // The specific spin (e.g., "What can you actually build with it?")
+    title: string              // Video title for this angle
+    hook: string               // The curiosity hook — opens a loop, sparks "need to watch"
+    thumbnailConcept: string   // Visual concept (90% psychology): what's the ONE image that makes people lean in?
+    intros: {                  // 2-3 intro options with different payoffs to test
+      intro: string            // First 2-3 sentences of the video
+      payoff: string           // What the viewer secretly hopes to walk away with
+    }[]
+    buildProject: string       // Concrete thing to build on camera
+    format: 'tutorial' | 'deep-dive' | 'speed-build' | 'comparison' | 'reaction'
+    estimatedBuildTime: string // "30 min", "2 hours"
+  }[]
+
+  // === SCORING ===
+  scores: {
+    buildability: number       // 1-10: Can you build something real on camera?
+    timeliness: number         // 1-10: Is this trending RIGHT NOW?
+    virality: number           // 1-10: Will this get clicks?
+    composite: number          // Weighted: 0.50 * build + 0.30 * time + 0.20 * viral
+  }
+
+  tags: string[]               // e.g., ["claude", "agents", "open-source", "vibe-coding"]
 }
 ```
 
@@ -131,9 +156,20 @@ composite = (buildability * 0.50) + (timeliness * 0.30) + (virality * 0.20)
 - **Virality (1-10)**: LLM-assessed + boosts for big-name brands, controversy, high engagement-to-age ratio
 
 ### Step 6: Notion Delivery
-- User creates a Notion database with columns: Title, Status (New Ideas / Researching / Scripting / Filming / Published), Composite Score, Buildability, Timeliness, Virality, Hook, Why Now, Build Project, Format, Sources, Tags, Surfaced At
+- User creates a Notion database with properties:
+  - **Topic** (title) — the core subject
+  - **Status** (select) — New Ideas / Researching / Scripting / Filming / Published
+  - **Composite Score** (number) — 0-10
+  - **Buildability** / **Timeliness** / **Virality** (number) — 0-10 each
+  - **Why Now** (rich_text) — timeliness context
+  - **Tags** (multi_select)
+  - **Surfaced At** (date)
+- Each Notion page body contains the **full video brief**:
+  - Sources section with all reference links + snippets
+  - Each angle as a toggle block containing: title, hook, thumbnail concept, intro options, build project
+  - This makes the Notion page a self-contained brief Rose can work from directly
 - Agent creates pages with Status = "New Ideas"
-- Before creating, check for existing pages with similar titles to avoid duplicates
+- Before creating, check for existing pages with similar topics to avoid duplicates
 
 ### Step 7: Email Digest
 - Resend SDK (same as swf-pipeline)
