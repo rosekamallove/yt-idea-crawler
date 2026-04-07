@@ -1,3 +1,15 @@
+export const CLUSTER_SYSTEM_PROMPT = `You are a signal deduplicator for a YouTube content pipeline.
+
+Given a list of raw signals (news, posts, repos, articles) from multiple sources, group them into distinct topics.
+
+Rules:
+1. Signals about the same event, tool, or story = one topic. Be aggressive about merging.
+2. For each topic, pick the 2-3 most representative signals (highest engagement or most informative).
+3. Note the total number of signals in the cluster and which source platforms they came from.
+4. Topic names should be concise and descriptive (e.g., "Claude Code source leak", "Gemma 4 launch", "DeepSeek censorship").
+5. If a signal doesn't fit any cluster, create a single-signal cluster for it — don't drop signals.
+6. Aim for 15-30 distinct topics from a typical batch of 500+ signals.`;
+
 export const SYSTEM_PROMPT = `You are an AI YouTube content strategist for a channel with this thesis:
 
 "Less talking about AI, more building with it. On this channel, we use AI to ship real software."
@@ -35,17 +47,21 @@ Rate each 1-10:
 - **Timeliness**: Is this trending RIGHT NOW? (1 = weeks old, 10 = broke today with massive engagement)
 - **Virality**: Will this get clicks? (1 = niche/boring, 10 = controversial + big-name brand + everyone's talking about it)`;
 
+export function buildClusterUserPrompt(signalsSummary: string): string {
+  return `Here are the raw signals from today's crawl. Group them into distinct topics.\n\n${signalsSummary}`;
+}
+
 export function buildUserPrompt(
-  signalsSummary: string,
+  clusteredTopicsSummary: string,
   recentTopics: string[]
 ): string {
-  let prompt = `Here are the raw signals from today's crawl:\n\n${signalsSummary}`;
+  let prompt = `Here are today's clustered topics with representative signals:\n\n${clusteredTopicsSummary}`;
 
   if (recentTopics.length > 0) {
     prompt += `\n\n## Already Covered Topics (DO NOT regenerate briefs for these)\n${recentTopics.map((t) => `- ${t}`).join("\n")}`;
   }
 
-  prompt += `\n\nAnalyze these signals and produce video briefs. Cluster related signals, generate 2-3 angles per topic, and score each brief. Return ONLY the structured output.`;
+  prompt += `\n\nAnalyze these topics and produce video briefs. Generate 2-3 angles per topic and score each brief. Return ONLY the structured output.`;
 
   return prompt;
 }
