@@ -107,7 +107,11 @@ const VIDEO_BRIEF_SCHEMA = {
                     required: ["intro", "payoff"],
                   },
                 },
-                buildProject: { type: "string" as const },
+                buildProject: {
+                  type: "string" as const,
+                  description:
+                    "Concrete thing to build on camera, or 'N/A' for reaction/analysis formats",
+                },
                 format: {
                   type: "string" as const,
                   enum: [

@@ -1,5 +1,5 @@
 import type { RawSignal } from "../types.js";
-import { matchesAIKeywords } from "../config.js";
+import { config, matchesAIKeywords } from "../config.js";
 
 const SUBREDDITS = [
   "LocalLLaMA",
@@ -39,14 +39,46 @@ interface RedditListing {
   };
 }
 
+/** Get an OAuth token using client credentials (app-only auth) */
+async function getAccessToken(): Promise<string> {
+  const res = await fetch("https://www.reddit.com/api/v1/access_token", {
+    method: "POST",
+    headers: {
+      "User-Agent": USER_AGENT,
+      Authorization:
+        "Basic " +
+        Buffer.from(
+          `${config.redditClientId}:${config.redditClientSecret}`
+        ).toString("base64"),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Reddit OAuth failed: ${res.status}`);
+  }
+
+  const json = (await res.json()) as { access_token: string };
+  return json.access_token;
+}
+
 async function fetchSubreddit(
   subreddit: string,
-  sort: "hot" | "new"
+  sort: "hot" | "new",
+  token: string | null
 ): Promise<RedditPost[]> {
-  const url = `https://www.reddit.com/r/${subreddit}/${sort}.json?limit=50`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT },
-  });
+  // Use OAuth endpoint if we have a token, fallback to public JSON API
+  const baseUrl = token
+    ? `https://oauth.reddit.com/r/${subreddit}/${sort}?limit=50`
+    : `https://www.reddit.com/r/${subreddit}/${sort}.json?limit=50`;
+
+  const headers: Record<string, string> = { "User-Agent": USER_AGENT };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(baseUrl, { headers });
 
   if (!res.ok) {
     throw new Error(`Reddit ${res.status} for r/${subreddit}/${sort}`);
@@ -61,9 +93,7 @@ function toRawSignal(post: RedditPost): RawSignal {
   return {
     sourceType: "reddit",
     title: d.title,
-    url: d.is_self
-      ? `https://reddit.com${d.permalink}`
-      : d.url,
+    url: d.is_self ? `https://reddit.com${d.permalink}` : d.url,
     body: d.selftext || null,
     author: d.author,
     engagementMetrics: {
@@ -78,19 +108,39 @@ function toRawSignal(post: RedditPost): RawSignal {
 export async function poll(): Promise<RawSignal[]> {
   console.log(`[Reddit] Polling ${SUBREDDITS.length} subreddits (hot + new)...`);
 
+  // Try OAuth first (needed for cloud/server environments)
+  let token: string | null = null;
+  if (config.redditClientId && config.redditClientSecret) {
+    try {
+      token = await getAccessToken();
+      console.log("[Reddit] Using OAuth authentication");
+    } catch (err) {
+      console.warn("[Reddit] OAuth failed, falling back to public API:", err);
+    }
+  }
+
   const tasks = SUBREDDITS.flatMap((sub) => [
-    fetchSubreddit(sub, "hot").then((posts) => ({ sub, sort: "hot" as const, posts })),
-    fetchSubreddit(sub, "new").then((posts) => ({ sub, sort: "new" as const, posts })),
+    fetchSubreddit(sub, "hot", token).then((posts) => ({
+      sub,
+      sort: "hot" as const,
+      posts,
+    })),
+    fetchSubreddit(sub, "new", token).then((posts) => ({
+      sub,
+      sort: "new" as const,
+      posts,
+    })),
   ]);
 
   const results = await Promise.allSettled(tasks);
 
   const seen = new Set<string>();
   const signals: RawSignal[] = [];
+  let failed = 0;
 
   for (const r of results) {
     if (r.status !== "fulfilled") {
-      console.warn(`[Reddit] Failed:`, r.reason);
+      failed++;
       continue;
     }
 
@@ -100,19 +150,23 @@ export async function poll(): Promise<RawSignal[]> {
     for (const post of posts) {
       const d = post.data;
 
-      // Deduplicate within this run
       if (seen.has(d.id)) continue;
       seen.add(d.id);
 
-      // Score filter
       if (d.score < minScore) continue;
 
-      // AI keyword filter
       const text = [d.title, d.selftext, d.url].join(" ");
       if (!matchesAIKeywords(text)) continue;
 
       signals.push(toRawSignal(post));
     }
+  }
+
+  if (failed > 0) {
+    console.warn(
+      `[Reddit] ${failed}/${SUBREDDITS.length * 2} requests failed` +
+        (token ? "" : " — add REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET for server use")
+    );
   }
 
   console.log(`[Reddit] Found ${signals.length} AI-related signals`);

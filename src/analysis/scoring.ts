@@ -1,9 +1,9 @@
 import type { RawSignal, VideoBrief } from "../types.js";
 
 const WEIGHTS = {
-  buildability: 0.5,
-  timeliness: 0.3,
-  virality: 0.2,
+  buildability: 0.35,
+  timeliness: 0.35,
+  virality: 0.3,
 };
 
 function clamp(value: number, min = 1, max = 10): number {
@@ -30,11 +30,12 @@ export function applyHeuristics(
   if (/\b(api|sdk|open.?source|framework|library|cli|npm|pip)\b/.test(text)) {
     buildability += 1;
   }
+  // Light penalty for pure opinion — but don't crush it, reaction videos are valid
   if (
-    /\b(opinion|commentary|editorial|analysis|rant|drama)\b/.test(text) &&
+    /\b(opinion|commentary|editorial|rant)\b/.test(text) &&
     !hasGitHubSource
   ) {
-    buildability -= 2;
+    buildability -= 1;
   }
 
   // --- Timeliness boosts ---

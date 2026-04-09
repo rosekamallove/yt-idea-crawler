@@ -93,4 +93,6 @@ export const config = {
   githubToken: process.env.GITHUB_TOKEN ?? "",
   productHuntToken: process.env.PRODUCTHUNT_TOKEN ?? "",
   youtubeApiKey: process.env.YOUTUBE_API_KEY ?? "",
+  redditClientId: process.env.REDDIT_CLIENT_ID ?? "",
+  redditClientSecret: process.env.REDDIT_CLIENT_SECRET ?? "",
 };
