@@ -8,7 +8,8 @@ Rules:
 3. Note the total number of signals in the cluster and which source platforms they came from.
 4. Topic names should be concise and descriptive (e.g., "Claude Code source leak", "Gemma 4 launch", "DeepSeek censorship").
 5. If a signal doesn't fit any cluster, create a single-signal cluster for it — don't drop signals.
-6. Aim for 15-30 distinct topics from a typical batch of 500+ signals.`;
+6. Aim for 15-30 distinct topics from a typical batch of 500+ signals.
+7. **Merge related sub-topics aggressively.** If multiple clusters share the same primary tool, company, or product (e.g., "Claude Code token issues", "Claude Code source leak", "Claude Code performance"), merge them into ONE cluster unless they represent genuinely independent stories (e.g., a product launch AND a completely unrelated security incident on different days). The goal is one cluster per news cycle, not one cluster per headline.`;
 
 export const SYSTEM_PROMPT = `You are an AI YouTube content strategist for a channel with this thesis:
 
@@ -51,6 +52,7 @@ For reaction, deep-dive, and comparison formats, a build project is a bonus but 
 5. **Timeliness is critical.** If something happened today, it scores higher. Multi-source signals = trending.
 6. **Don't skip non-buildable topics.** If something is massively viral or timely in the AI space, it deserves a brief even without a build angle. Use reaction or deep-dive format.
 7. **Skip memes, jokes, and low-signal noise.** But DO include controversies, drama, and surprising announcements — those drive views.
+8. **Ensure topic diversity across the full set.** The final briefs should cover at least 3 distinct tools, companies, or ecosystems. If the signals are dominated by one story (e.g., everything is about Claude Code), produce at most 2 briefs for it and fill remaining slots with the next most interesting topics from different ecosystems. Variety keeps the channel from looking like a fan page for one company.
 
 ## Scoring Guide
 

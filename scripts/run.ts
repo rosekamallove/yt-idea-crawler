@@ -137,7 +137,8 @@ async function main() {
   }
 
   // 3. Load recent topics for run-to-run dedup
-  const recentTopics = await loadRecentTopics();
+  const { topics: recentTopics, isCoveredRecently } =
+    await loadRecentTopics();
   if (recentTopics.length > 0) {
     console.log(
       `[History] ${recentTopics.length} recent topics will be excluded\n`
@@ -147,8 +148,19 @@ async function main() {
   // 4. Analyze with Claude
   const rawBriefs = await analyze(signals, recentTopics);
 
-  // 5. Score and rank
-  const briefs = scoreAndRank(rawBriefs, signals);
+  // 5. Score and rank (includes diminishing returns + diversity cap)
+  const rankedBriefs = scoreAndRank(rawBriefs, signals);
+
+  // 5b. Filter out briefs semantically similar to recently covered topics
+  const briefs = rankedBriefs.filter((b) => {
+    if (isCoveredRecently(b.topic)) {
+      console.log(
+        `[History] Suppressed "${b.topic}" — too similar to a recent topic`
+      );
+      return false;
+    }
+    return true;
+  });
 
   // 6. Print results
   console.log("\n" + "=".repeat(60));
